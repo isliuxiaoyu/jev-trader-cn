@@ -1,70 +1,137 @@
-# jev-trader
+# A 股 Typed Decision 实验台
 
-One decision every Monad block. A TypeSafe Jev model watches the Kuru MON-USDC order book and answers buy or sell every ~300 ms. Every block posts a real post-only limit order on that side, one tick inside the touch, replacing the last one. Fills happen when a taker hits it, so the bot earns the spread instead of paying it. A small server streams every block to the dashboard.
+这是一个面向中国大陆 A 股的可插拔决策模型实验台。Jev、AgentJev、Nimble、Bespoke-Nimble-9B、Decider 和传统基线都只是 `DecisionModel`。策略、行情、规则和评价不知道自己面对的是哪一个模型。
 
-## Run
+第一阶段做模拟交易。真实券商接口默认关闭。
 
-    cp .env.example .env
-    bun install
-    bun run start
+## 原则
 
-With no `PRIVATE_KEY` it dry-runs: real book, real decisions, simulated fills. Set `MODEL=jev` and `TYPESAFE_AI_API_KEY` to use Jev; the default `mock` is a momentum heuristic stand-in.
+- Decision Model Agnostic
+- A-share First
+- Paper Trading First
+- Prediction Before Automation
+- No Look-ahead Bias
+- Adapter Based
+- Reproducible Experiments
+- Local Model Friendly
+- Real Broker Disabled by Default
 
-## Endpoints
+预测和交易是两条管道。模型输出的是某个问题的候选分布。`DecisionPolicy` 才把它解释成买入、持有或卖出。规则层可以否决。评价用决策时刻之后的价格，那些价格不会进入 `DecisionRequest`。
 
-Deployed (dry run, mock model): https://jev-trader-production.up.railway.app
+`topProbability` 是当前候选集合里的选择概率，不是校准后的成功概率。原始分布、最高概率和 margin 会原样记入 Prediction Log，校准留在评价阶段。
 
-- `GET /` snapshot: model, wallet, dryRun, latest block event
-- `GET /history` last 1000 block events
-- `GET /events` SSE: `snapshot` on connect, then one `block` event per block, plus a `fill` event whenever a live order's receipt lands
+## 数据流
 
-Every event (see `src/trader.ts` for types):
+```
+A 股数据
+  -> MarketDataProvider
+  -> AStockFeatureEngine
+  -> AStockTradeState
+  -> DecisionRequest(state, schema, asOf)
+  -> DecisionModel
+  -> DecisionResponse
+  -> DecisionPolicy
+  -> AStockTradingRules
+  -> PaperTrader
+  -> PredictionLog / Evaluation
+  -> Dashboard
+```
 
-    {
-      "block": 105488269, "ts": 1789593630676,
-      "mid": 0.022636, "bestBid": 0.022628, "bestAsk": 0.022644, "spreadBps": 7.07,
-      "decision": { "action": "buy", "probabilities": { "buy": 0.77, "sell": 0.23, "hold": 0 }, "upIn10": 0.77, "latencyMs": 81, "late": false },
-      "quote": { "side": "buy", "price": 0.022629, "size": 200, "txHash": "0x…", "gasMon": 0.0357, "cancel": [100295801], "status": "sent", "orderId": null, "capped": false },
-      "fill": null,
-      "resting": { "bidMon": 200, "askMon": 200 },
-      "position": { "side": "short", "size": 200, "entryPrice": 0.022633, "unrealizedUsd": -0.0006, "unrealizedMon": -0.027 },
-      "totals": { "blocks": 3, "decisions": 3, "quotes": 3, "fills": 1, "reverted": 0, "lateBlocks": 0, "jevUsd": 0.000004, "gasMon": 0.107, "gasUsd": 0.0024, "realizedUsd": 0, "pnlUsd": -0.003, "pnlMon": -0.13, "pnlPct": -0.003 }
-    }
+`replay`、`backtest`、`paper` 共用上面这条管道。回放只记预测。回测和模拟盘才会下模拟单。
 
-Every block the model is asked about the move over `HORIZON_BLOCKS` (default 100, ~30 s) and answers `buy` or `sell`. `quote` is the order that block put on the book: a post-only limit order of `TRADE_SIZE_MON` on that side, `QUOTE_INSIDE_TICKS` inside the touch (clamped to the touch when the spread is too tight), in one `batchUpdate` that also cancels everything we had resting (`cancel`). `hold` appears only with `decision.late: true`, when the model missed the block and nothing was posted. When the position cap (or, live, margin funds) blocks a side, the quote goes on the other side with `capped: true` and `probabilities` still show the model's call. `resting` is our size known to be on the book after this block. `upIn10` equals the buy probability.
+## 运行
 
-Live sends are fired and forgotten, so the `block` event carries the **intent**: `status: "sent"`, `gasMon` is `gasLimit x (last known base fee + priority)`. Monad charges the gas limit, so that is the real cost whether the order lands or not. The receipt arrives a block or two later as its own SSE event:
+```sh
+cp .env.example .env
+bun install
+bun test
+bun run typecheck
+bun run start
+```
 
-    event: quote
-    data: { "block": 105488269, "quote": { …, "status": "placed", "orderId": 100295812, "gasMon": 0.0357 } }
+默认是 `MODEL=baseline-momentum`、`DATA=mock`、`MODE=replay`。不需要下载模型，也不需要行情账号。看板在 `web/`，接口默认 `http://127.0.0.1:3000`。
 
-`status` becomes `placed` (with the order id) or `reverted` (the book moved through the price before the tx landed, or a cancelled order had already filled). No receipt after 10 blocks gives `lost`. Fills are not in our own transactions: someone else's taker order hits our resting one, and the Trade log for it arrives via the same `eth_getLogs` poll that feeds the model. Each block with fills gets its own SSE event, and `position`, `realizedUsd` and `fills` update then:
+切换模型只改环境变量：
 
-    event: fill
-    data: { "block": 105488271, "fill": { "side": "buy", "size": 200, "price": 0.022629, "txHash": "0x…", "orderId": 100295812, "simulated": false } }
+```sh
+MODEL=baseline-momentum bun run start
+MODEL=agent-jev MODEL_ENDPOINT=http://127.0.0.1:8149 bun run start
+MODEL=nimble-9b MODEL_ENDPOINT=http://127.0.0.1:8149 MODEL_BASE=Qwen/Qwen3.5-9B bun run start
+MODEL=jev TYPESAFE_AI_API_KEY=... bun run start
+MODEL=decider-2b MODEL_ENDPOINT=http://127.0.0.1:8149 bun run start
+```
 
-`txHash` is the taker's transaction. In a dry run the quote is `status: "sim"`: the order rests for one block and a real print crossing its price fills it (`simulated: true`).
+没有本地服务时，AgentJev、Nimble、Decider 会在调用前报 `[ADAPTER LIMITATION]`，不会编造分布。测试通过注入的 fixture 跑适配器，CI 不下载权重。
 
-## Layout
+同一时刻把多个模型打在同一份状态上：
 
-    src/config.ts   env
-    src/chain.ts    block feed (WebSocket newHeads + polling backstop, newest block only), raw RPC
-    src/book.ts     one-eth_call order book reader (decodes getL2Book, merges the AMM vault)
-    src/market.ts   Kuru: read book, hand-encoded batchUpdate (cancel + post-only place), margin deposits, local nonce, async confirmation
-    src/model.ts    Model interface, JevModel (AI SDK experimental_evaluate), MockModel
-    src/trader.ts   the loop: one in flight, hold when late, position and P&L accounting
-    src/server.ts   Bun.serve: snapshot, history, SSE
+```sh
+MODEL=baseline-momentum COMPARE_MODELS=baseline-random
+```
 
-## The 300 ms budget
+比较模型只写预测日志。下单只用 `MODEL`。评价表并列展示，不产生“最佳模型”。
 
-A decision and an order have to fit in one block, so the hot loop makes exactly two RPC round trips:
-one `eth_call` for the book (~18 ms on the public RPC, `READ_RPC_URL`) and one `eth_sendRawTransaction`
-(`RPC_URL`), which returns as soon as the tx is accepted. Nothing else is on the path — no
-`eth_estimateGas` (Monad charges gas on the limit, so the limit is hardcoded or derived once at
-startup), no `eth_sendRawTransactionSync` (it blocks until the tx is Proposed), no gas price lookup
-(static type-2 fees: `MAX_FEE_GWEI` cap, 2 gwei priority; the effective price is base + priority).
-Receipts, the fee estimate and the vault check run off the hot path on later blocks. Measured in a
-dry run with the mock model: read p50 18 ms, whole loop p50 100 ms (80 ms of it the mock's inference stand-in).
+## 一次实验
 
-    bun run scripts/bench-read.ts     # book reader vs the SDK: exactness and latency
-    bun run scripts/dry-encode.ts     # signs a buy and a sell offline, asserts the calldata matches the SDK
+```
+2026-A-001
+数据: mock 或 ifind 或 csv
+特征: v1
+模型: AgentJev-0.6B 或其他注册模型
+模式: direction_5m_v1
+策略: threshold-v1
+规则: AStock-MainBoard-v1
+成交: BestAskPlusSlippage
+```
+
+规则档还包括 `AStock-ChiNext-v1`、`AStock-STAR-v1`、`AStock-ST-v1`。策略还有 `momentum-v1`、`probability-edge-v1`、`consensus-v1`。
+
+## 模型
+
+| id | 类型 | 说明 |
+| --- | --- | --- |
+| baseline-momentum | 基线 | 用 5 分钟收益生成分布 |
+| baseline-random | 基线 | 由标的、时间和问题确定的分布 |
+| agent-jev | typed decision | 一次前向，零 token 解码。需要本地 AgentJev 服务 |
+| nimble | typed decision | boolean / choice / score，返回候选概率 |
+| nimble-9b | LoRA | `Qwen/Qwen3.5-9B` 加 `bespokelabs/Bespoke-Nimble-9B`，适配器不是完整模型 |
+| decider-2b | typed decision | 复用同一套 Typed Decision HTTP 适配器 |
+| jev | typed decision | TypeSafe 评价接口，保留为其中一个适配器 |
+| llm | TEXT MODEL | OpenAI 兼容接口。不能用于要求分布的 schema |
+
+Typed decision 适配器不读取 `MODEL_TEMPERATURE`。只有 `llm` 声明了 temperature。
+
+本地加载说明在 `scripts/serve_typed_model.py`。
+
+## 布局
+
+```
+src/decision     DecisionModel, schema, registry, policy
+src/models       适配器和基线
+src/market       AStockTradeState, 特征, mock / csv / ifind
+src/rules        A 股规则档
+src/broker       PaperTrader。QMT 构造时直接拒绝
+src/eval         预测日志和评价指标
+src/pipeline     replay / backtest / paper
+legacy/crypto    原来的 Monad / Kuru 循环，已隔离
+web              看板
+```
+
+iFinD 只出现在 `IFindMarketDataProvider`。特征引擎只接收规范化行情。
+
+## 看板
+
+看板显示当前模型、版本、Decision Schema、股票、市场状态、动作，以及完整概率分布、margin、延迟。点开一条记录可以看到问题、选项、分布和当时的状态摘要。旁边是模拟委托、成交、持仓、盈亏，以及不排名的评价表。
+
+## 测试
+
+```sh
+bun test
+bun run typecheck
+```
+
+覆盖模型接口、注册表、能力检查、概率归一、盘口失衡、特征、iFinD 解析、T+1、涨跌停、停牌、资金、部分成交、费用、滑点、盈亏、回放、回测、评价、无前视、模型版本，以及 AgentJev、Nimble、Decider、Jev、基线适配器。完整权重下载不是默认测试。
+
+## 旧的链上循环
+
+`legacy/crypto` 保留原来的 Kuru 盘口和 Monad 发单代码。A 股模块不依赖它。`ethers` 和 `@kuru-labs/kuru-sdk` 只给这段旧代码使用。

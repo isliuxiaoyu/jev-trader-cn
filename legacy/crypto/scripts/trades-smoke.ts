@@ -1,9 +1,9 @@
 import { ethers } from "ethers";
 import * as Kuru from "@kuru-labs/kuru-sdk";
-import { config } from "../src/config";
-import { rpc } from "../src/chain";
-import { log10 } from "../src/book";
-import { TradeFeed } from "../src/trades";
+import { config } from "../config";
+import { rpc } from "../chain";
+import { log10 } from "../book";
+import { TradeFeed } from "../trades";
 
 const url = "https://rpc.monad.xyz";
 const provider = new ethers.providers.StaticJsonRpcProvider(url, config.chainId);

@@ -1,50 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { BlockEvent, Meta } from "@/lib/types";
-import { fmtInt, uptime } from "@/lib/format";
+import type { Meta, Tick } from "@/lib/types";
+import { fmtNum, fmtPx } from "@/lib/format";
 import styles from "./StatsRow.module.css";
 
-const DASH = "-";
-
-export default function StatsRow({
-  latest,
-  avgLatencyMs,
-  meta,
-}: {
-  latest: BlockEvent | null;
-  avgLatencyMs: number;
-  meta: Meta | null;
-}) {
-  const startedAt = meta?.startedAt ?? null;
-  // Ticks once a second; starts on the client so SSR and hydration agree.
-  const [up, setUp] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (startedAt == null) {
-      setUp(null);
-      return;
-    }
-    const tick = () => setUp(uptime(startedAt));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-
-  const decision = latest?.decision ?? null;
-  const last = decision && !decision.late ? `${decision.latencyMs} ms` : `${DASH} ms`;
-  const avg =
-    Number.isFinite(avgLatencyMs) && avgLatencyMs > 0 ? `${Math.round(avgLatencyMs)}ms` : DASH;
-  const totals = latest?.totals ?? null;
-
+export default function StatsRow({ latest, meta }: { latest: Tick | null; meta: Meta | null }) {
+  const pnl = latest?.pnl;
   return (
     <div className={styles.stats}>
-      <span>last {last}</span>
-      <span>avg {avg}</span>
-      <span className={styles.nowrap}>{totals ? fmtInt(totals.decisions) : DASH} calls</span>
-      <span className={styles.nowrap}>{totals ? fmtInt(totals.fills) : DASH} fills</span>
+      <span>价格 {latest ? fmtPx(latest.price) : "-"}</span>
+      <span>动作 {latest?.action ?? "-"}</span>
+      <span>差距 {latest ? latest.margin.toFixed(2) : "-"}</span>
+      <span>延迟 {latest ? `${Math.round(latest.latencyMs)} ms` : "-"}</span>
+      <span>持仓 {latest ? fmtNum(latest.position.qty) : "-"}</span>
+      <span>现金 {pnl ? fmtNum(pnl.cash) : "-"}</span>
+      <span>盈亏 {pnl ? fmtNum(pnl.total) : "-"}</span>
       <span className={styles.spacer} />
-      <span>uptime {up ?? "00:00:00"}</span>
+      <span>{meta?.policy ?? ""}</span>
     </div>
   );
 }

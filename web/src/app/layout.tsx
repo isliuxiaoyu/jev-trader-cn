@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jev Trader",
-  description: "One AI trade decision every Monad block.",
+  title: "A股决策实验",
+  description: "面向 A 股的可插拔 typed decision 实验台。模拟交易，默认不连接真实券商。",
 };
 
 export const viewport: Viewport = {

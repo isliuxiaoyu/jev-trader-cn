@@ -1,13 +1,100 @@
-export type Action = "buy" | "sell" | "hold";
-export type Side = "buy" | "sell";
-/** This block's post-only limit order. `sent` until its receipt lands, then `placed` or `reverted`. */
-export interface Quote { side: Side; price: number; size: number; txHash: string | null; gasMon: number; cancel: number[]; status: "sent" | "placed" | "reverted" | "lost" | "sim"; orderId: number | null; capped: boolean }
-/** A taker hit one of our resting orders. */
-export interface Fill { side: Side; size: number; price: number; txHash: string | null; orderId: number; simulated: boolean }
-export interface Decision { action: Action; probabilities: { buy: number; sell: number; hold: number }; upIn10: number; latencyMs: number; late: boolean }
-export interface Position { side: "long" | "short" | "flat"; size: number; entryPrice: number | null; unrealizedUsd: number; unrealizedMon: number }
-export interface Totals { blocks: number; decisions: number; quotes: number; fills: number; reverted: number; lateBlocks: number; jevUsd: number; gasMon: number; gasUsd: number; realizedUsd: number; pnlUsd: number; pnlMon: number; pnlPct: number }
-export interface BlockEvent { block: number; ts: number; mid: number; bestBid: number; bestAsk: number; spreadBps: number; decision: Decision | null; quote: Quote | null; fill: Fill | null; resting: { bidMon: number; askMon: number }; position: Position; totals: Totals }
-export interface Meta { model: string; wallet: string | null; dryRun: boolean; market: string; startedAt: number }
+export type TradeAction = "BUY" | "HOLD" | "SELL";
+
+export interface AnswerView {
+  questionId: string;
+  type: string;
+  probabilities: Record<string, number>;
+  selectedValue: string;
+  topProbability: number;
+  margin: number;
+}
+
+export interface ComparisonView {
+  model: string;
+  modelVersion: string;
+  probabilities: Record<string, number>;
+  selectedValue: string;
+  topProbability: number;
+  margin: number;
+}
+
+export interface Tick {
+  ts: number;
+  symbol: string;
+  price: number;
+  spreadBps: number;
+  bookImbalance: number;
+  model: string;
+  modelVersion: string;
+  schemaId: string;
+  questionId: string;
+  question: string;
+  options: string[];
+  probabilities: Record<string, number>;
+  selectedValue: string;
+  topProbability: number;
+  margin: number;
+  latencyMs: number;
+  action: TradeAction;
+  policyId: string;
+  guardOk: boolean;
+  guardReasons: string[];
+  stateSummary: Record<string, number | string | boolean | null>;
+  answers: AnswerView[];
+  comparisons: ComparisonView[];
+  order: { id: string; side: string; qty: number; price: number; status: string; filledQty: number; reason?: string } | null;
+  fill: { qty: number; price: number; fee: number } | null;
+  position: { qty: number; available: number; avgCost: number | null };
+  pnl: { realized: number; unrealized: number; fees: number; total: number; cash: number };
+}
+
+export interface ModelMetrics {
+  model: string;
+  modelVersion: string;
+  questionId: string;
+  count: number;
+  labeled: number;
+  top1Accuracy: number | null;
+  logLoss: number | null;
+  brier: number | null;
+  ece: number | null;
+  avgFutureReturn: number | null;
+  medianFutureReturn: number | null;
+  avgMfe: number | null;
+  avgMae: number | null;
+  avgLatencyMs: number | null;
+}
+
+export interface Experiment {
+  id: string;
+  dataset: string;
+  marketDataProvider: string;
+  featureVersion: string;
+  model: string;
+  modelVersion: string;
+  schema: string;
+  policy: string;
+  tradingRuleProfile: string;
+  executionModel: string;
+}
+
+export interface Meta {
+  model: string;
+  modelVersion: string;
+  schema: string;
+  policy: string;
+  symbol: string;
+  mode: string;
+  startedAt: number;
+  experiment: Experiment | null;
+  evaluation: { byModel: ModelMetrics[] } | null;
+}
+
 export type ConnectionState = "connecting" | "live" | "reconnecting";
-export interface FeedState { meta: Meta | null; events: BlockEvent[]; latest: BlockEvent | null; connection: ConnectionState; avgLatencyMs: number }
+
+export interface FeedState {
+  meta: Meta | null;
+  events: Tick[];
+  latest: Tick | null;
+  connection: ConnectionState;
+}

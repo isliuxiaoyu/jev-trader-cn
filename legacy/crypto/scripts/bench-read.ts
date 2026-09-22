@@ -2,8 +2,8 @@
 // Run: BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun run scripts/bench-read.ts [rpcUrl] [reads]
 import { ethers } from "ethers";
 import * as Kuru from "@kuru-labs/kuru-sdk";
-import { readBook, buildBook, abiBytesPayload, decodeVaultParams, readVaultParams, vaultActive, SEL_GET_L2_BOOK, SEL_GET_VAULT_PARAMS } from "../src/book";
-import type { Book } from "../src/market";
+import { readBook, buildBook, abiBytesPayload, decodeVaultParams, readVaultParams, vaultActive, SEL_GET_L2_BOOK, SEL_GET_VAULT_PARAMS } from "../book";
+import type { Book } from "../market";
 
 const RPC = process.argv[2] ?? "https://rpc.monad.xyz";
 const N = Number(process.argv[3] ?? 10);

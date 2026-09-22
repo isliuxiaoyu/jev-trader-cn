@@ -16,6 +16,15 @@ export function fmtPrice(n: number | null | undefined): string {
   return safe(n).toFixed(6);
 }
 
+/** A-share prices, two to four decimals. */
+export function fmtPx(n: number | null | undefined): string {
+  return safe(n).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+export function fmtNum(n: number | null | undefined): string {
+  return safe(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+}
+
 /** 0.0045 -> "$0.0045"; negatives -> "-$0.0045" */
 export function fmtUsd(n: number | null | undefined, d = 4): string {
   const v = safe(n);
