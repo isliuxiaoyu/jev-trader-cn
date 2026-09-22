@@ -1,31 +1,10 @@
-# Jev Trader — web
+# 看板
 
-Next.js (App Router, TypeScript, CSS Modules — no Tailwind) frontend for Jev Trader:
-one AI trade decision every Monad block.
+Next.js 看板，读取决策服务的 SSE。
 
-## Run
-
-```bash
-export BUN_INSTALL_CACHE_DIR="$TMPDIR/bun-cache" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+```sh
 bun install
-bun run dev      # http://localhost:3000
-bun run build
+NEXT_PUBLIC_API_URL=http://127.0.0.1:3000 bun run dev
 ```
 
-Use Bun only — npm is broken on this machine.
-
-## Config
-
-Copy `.env.example` to `.env.local`. `NEXT_PUBLIC_API_URL` points at the backend
-(default `https://jev-trader-production.up.railway.app`); the app opens an
-EventSource on `$NEXT_PUBLIC_API_URL/events`.
-
-## Layout
-
-- `src/lib/types.ts` — wire types (`BlockEvent`, `Decision`, `Fill`, `Meta`, …)
-- `src/lib/useFeed.ts` — SSE hook: snapshot / block / fill / ping, 1000-event
-  window, 1s→10s reconnect backoff, `connection` state, `avgLatencyMs`
-- `src/lib/useUptime.ts` — `useUptime(startedAt)` → ticking `"hh:mm:ss"`
-- `src/lib/format.ts` — number/address/tx formatting
-- `src/app/globals.css` — design tokens, `pulse`/`breathe` keyframes, `.card`
-- `src/components/<Name>/<Name>.tsx` — UI components (one folder each)
+服务端先在仓库根目录执行 `bun run start`。默认模型是动量基线，数据是合成行情，模式是回放。

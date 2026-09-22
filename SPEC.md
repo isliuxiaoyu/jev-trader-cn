@@ -1,100 +1,35 @@
-# Jev Trader — Product Spec
+# A 股决策实验台
 
-## One line
-A live public dashboard showing an AI make a real trade decision on Monad every 300 ms block.
+## 一句话
 
-## What it is
-A single-page web app. A TypeSafe "Jev" model (a System One model: no text output, returns typed decisions with probabilities in ~100 ms) watches the MON-USDC order book on Kuru, Monad's on-chain exchange. Every block (300 ms) it answers one question: buy or sell. Every block is a real order from a real wallet, confirmed in the same block. The page shows this happening live.
+同一份 A 股市场状态，同一套 Decision Schema，多个可替换的 Typed Decision 模型，统一预测日志和评价。模拟交易默认开启，真实券商默认关闭。
 
-## Who it is for
-1. Crypto Twitter, via a 20-second screen-recorded clip and a link. They have three seconds to get it.
-2. People who click through and watch for five minutes. They should be able to verify everything: wallet, transactions, cost.
+## 要回答的问题
 
-## The message
-Primary: "This AI makes a real trade decision every 300 ms on Monad."
-Secondary punchline: "The AI costs less than the gas." (Jev inference for an hour ≈ $0.20; gas for the same hour ≈ $2–5.)
-Nothing on screen may compete with these two lines.
+1. 不同模型对同一个 A 股状态的判断是否一致。
+2. 哪些分布更有区分度。
+3. 候选概率和未来收益有没有关系。
+4. 不同预测窗口是否稳定。
+5. 不同股票、行业、市场环境是否变化。
+6. 模型是否优于随机和动量基线。
+7. 预测优势在手续费、滑点、T+1、涨跌停之后还剩不剩。
 
-## Design principles
-- One screen. No navigation, no settings, no login.
-- Motion is the content. Something visibly changes every 300 ms, and the viewer should feel the rhythm of the chain.
-- Everything shown is real and verifiable. Wallet address, tx hashes, block heights link to the explorer.
-- Legible in a compressed 1080p clip and at phone width. Big numbers, high contrast, no thin type.
-- Restraint. Dark trading-desk aesthetic. Green = buy, red = sell, neutral grey = hold. One accent color (Monad purple is acceptable). No gradients, no decorative charts.
-- Honest. Every block trades, so spread and gas bleed are visible. Losses are shown as plainly as gains. A "stand-in model" badge appears when real Jev is not connected.
+不预设任何模型有效，也不给模型排名。
 
-## Layout (desktop 16:9 primary; mobile stacks vertically in the same order)
+## 两条管道
 
-1. Header strip
-   - Title (working name: Jev Trader), live indicator dot, "block 105,416,201" ticking every 300 ms.
-   - Wallet address, truncated, with copy and explorer link.
-   - Model badge: "jev-latest" (or "stand-in" in amber).
-   - Uptime.
+预测：市场状态，模型，预测，未来结果，评价。
 
-2. Hero: price chart
-   - MON/USDC mid price, rolling window (default last 5 minutes ≈ 1,000 blocks; toggle 1m / 5m / 15m).
-   - A marker on every fill: green up-triangle for buy, red down-triangle for sell. Nearly every block has one.
-   - Current price in large type at the right edge of the line. Position size and side shown as a small pill (e.g. "long 12 MON").
+交易：市场状态，模型，策略解释，风险规则，模拟经纪，成交，盈亏。
 
-3. Decision panel (the flicker; this is the signature element)
-   - Updates every block. Shows the decision for the current block.
-   - Two-way probability bar: buy vs sell with percentages. The chosen side is highlighted. (This is also the "will price go up" number: buy probability = up probability.)
-   - Decision latency in ms for this block (e.g. "94 ms").
-   - A tiny per-block tick strip along the bottom: the last 60 blocks as small squares, green/red for buy/sell, amber for "late" (model missed the block, no trade). Scrolls left as blocks arrive.
+模型说 UP，不等于发出买单。
 
-4. Counters row (six tiles, tabular numerals, all live)
-   - Blocks seen
-   - Decisions made
-   - Trades executed
-   - Jev spend (USD, four decimals)
-   - Gas spend (MON and USD)
-   - P&L (MON and %). Red or green. No smoothing, no hiding.
-   Jev spend and gas spend sit adjacent so the "AI costs less than gas" comparison is visual without a caption.
+## 非目标
 
-5. Trade tape
-   - Last 12 fills: block, side, size, price, decision latency, tx hash (link).
-   - New rows slide in from the top.
+第一阶段不做多代理研究、新闻、情绪或基本面代理，也不接真实证券交易。
 
-6. Footer
-   - One-line disclaimer: experimental demo, tiny bankroll, not financial advice, the model is not trying to be profitable.
-   - Credits and links: TypeSafe (Jev), Monad, Kuru, source repo. Credit, not co-branding.
+## 看板
 
-## States
-- Live: everything above.
-- Model late: block ticks amber, decision panel shows "late — held", counter for late blocks increments.
-- RPC disconnected: header dot turns red, chart freezes with a "reconnecting" overlay, counters stop.
-- Out of funds / paused: banner across the hero, decisions continue in dry-run (shown greyed) but no fills.
-- Replay: plays back a recorded session at real speed, clearly labelled "replay", for recording clips or when markets are dead.
-- Stand-in model: amber badge in header, otherwise identical.
+一个屏幕。当前模型、版本、schema、股票、状态摘要、完整概率分布、margin、延迟、最近预测、未来结果、模拟委托、成交、持仓、盈亏。点一条记录能看到问题、选项和输入摘要。
 
-## Interactions (deliberately few)
-- Hover a chart marker: tooltip with block, side, size, price, probabilities at that block.
-- Click tx hash or block: opens explorer.
-- Click wallet: copies address.
-- Chart window toggle.
-- Nothing else. No trading controls for viewers.
-
-## Live data shape (delivered over a server stream, one event per block)
-- block, timestamp
-- mid, bestBid, bestAsk, spread
-- decision: action (buy | sell; hold only when late), probabilities {buy, sell, hold}, upIn10 (= buy probability), latencyMs, late (bool)
-- fill (optional): side, size, price, txHash, gasMon
-- position: side, size, entryPrice, unrealizedMon
-- totals: blocks, decisions, trades, jevUsd, gasMon, gasUsd, pnlMon, pnlPct, lateBlocks
-
-## Non-goals
-- No comparison with other models. One model, one market.
-- No memecoins, no launchpad feed.
-- No user wallets, no user trading, no accounts.
-- No historical analytics, no backtests, no strategy explanation.
-- No chat, no text output from the model anywhere.
-
-## Technical constraints the design must respect
-- 3.3 updates per second, indefinitely. Animations must be cheap: transforms and opacity only, no layout thrash.
-- Constantly changing numbers need tabular (fixed-width) numerals so tiles do not jitter.
-- Must stay legible with a fill on nearly every block: markers must not smear into a solid band at 3 per second (thin markers, or aggregate when zoomed out).
-- Screen-recordable: no elements that only make sense with hover.
-- Works at 390 px wide.
-
-## Success criterion
-A viewer with no context, watching a 20-second clip on a phone with the sound off, understands within three seconds that an AI is trading on a blockchain every fraction of a second, and can see what it costs. Then they share it.
+最高选项概率旁边写明：这是候选集合里的选择概率，不是校准后的成功概率。

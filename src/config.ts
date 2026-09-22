@@ -1,36 +1,111 @@
-const env = (key: string, fallback?: string) => process.env[key] ?? fallback;
-const num = (key: string) => (env(key) ? Number(env(key)) : undefined);
+import { DecisionError, type ModelRuntimeConfig } from "./decision/types";
+import { getRegistration } from "./decision/registry";
+import { registerBuiltinModels } from "./models/register";
 
-export const config = {
-  rpcUrl: env("RPC_URL", "https://rpc.monad.xyz")!, // sends, receipts, nonce, gas estimation
-  readRpcUrl: env("READ_RPC_URL", "https://rpc.monad.xyz")!, // book reads + eth_blockNumber polling + trade logs
-  wsUrl: env("WS_URL"), // optional; polling backstop always runs
-  chainId: 143,
-  market: env("MARKET", "0x065C9d28E428A0db40191a54d33d5b7c71a9C394")!, // Kuru MON-USDC
-  /** Kuru MarginAccount this market settles against (slot 73 of the OrderBook proxy; verifiedMarket(market) is true). */
-  marginAccount: env("MARGIN_ACCOUNT", "0x2A68ba1833cDf93fa9Da1EEbd7F46242aD8E90c5")!,
-  privateKey: env("PRIVATE_KEY"),
-  dryRun: env("DRY_RUN") === "true" || !env("PRIVATE_KEY"),
-  tradeSizeMon: Number(env("TRADE_SIZE_MON", "200")), // Kuru MON-USDC minimum order is 200 MON
-  maxPositionMon: Number(env("MAX_POSITION_MON", "1000")),
-  bankrollUsd: Number(env("BANKROLL_USD", "100")), // used for pnlPct
-  /** Quote this many ticks inside the touch (0 = join the best bid/ask). Never crosses: clamps to the touch when the spread is too tight. */
-  quoteInsideTicks: Number(env("QUOTE_INSIDE_TICKS", "1")),
-  /** Startup deposits into the Kuru margin account, topped up to these balances. Limit orders draw from margin, not the wallet. */
-  marginMon: Number(env("MARGIN_MON", "600")),
-  marginUsdc: Number(env("MARGIN_USDC", "20")),
-  // Monad charges gas on the LIMIT, so never estimate per block: estimate once at init (or override) and hardcode.
-  gasLimit: num("GAS_LIMIT"),
-  gasLimitFallback: 350_000, // batchUpdate: one cancel + one post-only place measured at ~282k for the place alone
-  // EIP-1559 type-2 only. Effective price = base + priority, so a high static cap is free.
-  maxFeeGwei: Number(env("MAX_FEE_GWEI", "400")),
-  priorityFeeGwei: Number(env("PRIORITY_FEE_GWEI", "2")), // Monad hardcodes eth_maxPriorityFeePerGas at 2
-  pendingBlocks: 10, // give up on a tx with no receipt after this many blocks
-  refreshBlocks: 200, // how often to refresh the fee estimate, margin balances and the vault check
-  horizonBlocks: Number(env("HORIZON_BLOCKS", "100")), // the model is asked about the move over this many blocks (~30 s)
-  model: env("MODEL", "mock") as "mock" | "jev",
-  jevModelId: env("JEV_MODEL_ID", "jev-latest")!,
-  jevUsdPerMTok: 0.042,
-  port: Number(env("PORT", "3000")),
-  historySize: 1000,
-};
+export interface AppConfig {
+  modelId: string;
+  compareModelIds: string[];
+  mode: "replay" | "backtest" | "paper";
+  data: "mock" | "csv" | "ifind";
+  symbol: string;
+  schemaId: string;
+  policyId: string;
+  rulesId: string;
+  executionId: string;
+  horizonMs: number;
+  intervalMs: number;
+  port: number;
+  cash: number;
+  experimentId: string;
+  dataset: string;
+  csvPath?: string;
+  ifindEndpoint?: string;
+  ifindAccessToken?: string;
+  ifindRefreshToken?: string;
+  model: ModelRuntimeConfig;
+  ignoredParams: string[];
+}
+
+const SHARED_KEYS = ["endpoint", "path", "revision", "device", "dtype", "maxInputTokens", "timeoutMs", "cache", "baseModel", "adapterId", "temperature", "apiKey", "remoteModel"] as const;
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  if (env.REAL_BROKER === "true") {
+    throw new DecisionError("Real broker is disabled. Paper trading is the only execution path in this phase.");
+  }
+  registerBuiltinModels();
+  const modelId = env.MODEL || "baseline-momentum";
+  const registration = getRegistration(modelId);
+  const bag = readBag(env);
+  const model: ModelRuntimeConfig = {};
+  const ignored: string[] = [];
+  for (const key of SHARED_KEYS) {
+    const value = bag[key];
+    if (value == null || value === "") continue;
+    if (!registration.parameters.includes(key)) {
+      ignored.push(key);
+      continue;
+    }
+    assign(model, key, value);
+  }
+  const mode = env.MODE || "replay";
+  if (mode !== "replay" && mode !== "backtest" && mode !== "paper") throw new DecisionError(`unknown MODE ${mode}`);
+  const data = env.DATA || "mock";
+  if (data !== "mock" && data !== "csv" && data !== "ifind") throw new DecisionError(`unknown DATA ${data}`);
+  return {
+    modelId,
+    compareModelIds: (env.COMPARE_MODELS || "").split(",").map((s) => s.trim()).filter((s) => s.length > 0 && s !== modelId),
+    mode,
+    data,
+    symbol: env.SYMBOL || "600519.SH",
+    schemaId: env.SCHEMA || "direction_5m_v1",
+    policyId: env.POLICY || "threshold-v1",
+    rulesId: env.RULES || "AStock-MainBoard-v1",
+    executionId: env.EXECUTION || "BestAskPlusSlippage",
+    horizonMs: Number(env.HORIZON_MS || 300_000),
+    intervalMs: Number(env.DECISION_INTERVAL_MS || 60_000),
+    port: Number(env.PORT || 3000),
+    cash: Number(env.CASH || 200_000),
+    experimentId: env.EXPERIMENT_ID || "2026-A-001",
+    dataset: env.DATASET || (data === "mock" ? "sample-tape-v1" : data),
+    csvPath: env.CSV_PATH,
+    ifindEndpoint: env.IFIND_ENDPOINT,
+    ifindAccessToken: env.IFIND_ACCESS_TOKEN,
+    ifindRefreshToken: env.IFIND_REFRESH_TOKEN,
+    model,
+    ignoredParams: ignored,
+  };
+}
+
+function readBag(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  return {
+    endpoint: env.MODEL_ENDPOINT,
+    path: env.MODEL_PATH,
+    revision: env.MODEL_REVISION,
+    device: env.MODEL_DEVICE,
+    dtype: env.MODEL_DTYPE,
+    maxInputTokens: env.MODEL_MAX_INPUT_TOKENS,
+    timeoutMs: env.MODEL_TIMEOUT_MS,
+    cache: env.MODEL_CACHE,
+    baseModel: env.MODEL_BASE,
+    adapterId: env.MODEL_ADAPTER,
+    temperature: env.MODEL_TEMPERATURE,
+    apiKey: env.TYPESAFE_AI_API_KEY || env.MODEL_API_KEY,
+    remoteModel: env.MODEL_REMOTE || env.JEV_MODEL_ID,
+  };
+}
+
+function assign(model: ModelRuntimeConfig, key: string, value: string): void {
+  if (key === "maxInputTokens" || key === "timeoutMs") {
+    model[key] = Number(value);
+    return;
+  }
+  if (key === "cache") {
+    model.cache = value === "true";
+    return;
+  }
+  if (key === "temperature") {
+    model.temperature = Number(value);
+    return;
+  }
+  (model as Record<string, string>)[key] = value;
+}

@@ -110,16 +110,24 @@ bun --hot ./index.ts
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
-## The core message (do not break this)
+## Project principles
 
-The demo exists to support this tweet. Every design or strategy change must keep all four claims true:
+This repository is an A-share research bench for pluggable typed decision models. It is not a Jev-only trading bot, and the A-share path does not place Monad or Kuru orders.
 
-> I built a trading bot with Jev!
->
-> Jev decides if it should "buy" or "sell", given the price feed of an asset pair, and executes real trades.
->
-> It uses Monad to place the orders on Kuru's on-chain order book in every 300ms block.
->
-> Demo link: https://jev-trader.vercel.app
+Keep these true:
 
-Non-negotiables: Jev makes the buy/sell call (not code), from the price feed; real trades from a real wallet; an order placed on Kuru's on-chain book every 300 ms block; the demo is the live dashboard. Never decide every N blocks. No middle dots, em dashes or en dashes in any rendered text. No blinking or pulsing indicators.
+- Decision Model Agnostic. Strategy, market data, rules, and evaluation do not branch on a model id.
+- A-share First. Market state, features, sessions, T+1, price limits, and fees describe mainland China cash equities.
+- Paper Trading First. `PaperTrader` is the broker. Real broker adapters must refuse to run.
+- Prediction Before Automation. A model distribution is not an order. `DecisionPolicy` interprets it, then rules may reject it.
+- No Look-ahead Bias. A decision at time T sees only data with timestamp <= T. Future prices are for evaluation.
+- Adapter Based. New models implement `DecisionModel` and register. Do not add `if (model === "jev")` in the pipeline.
+- Reproducible Experiments. Logs keep model version, schema, policy, rule profile, and execution model.
+- Local Model Friendly. Typed models prefer one forward pass and a candidate distribution. Do not wrap AgentJev or Nimble in long chain-of-thought JSON.
+- Real Broker Disabled by Default.
+
+`topProbability` is the chosen candidate's mass inside the supplied options. It is not a calibrated probability that the choice is correct. Preserve the distribution, the top probability, and the margin.
+
+Bespoke-Nimble-9B is a LoRA adapter on Qwen3.5-9B, not a standalone checkpoint.
+
+The old Monad / Kuru loop lives in `legacy/crypto` and must not be imported by `src/`.

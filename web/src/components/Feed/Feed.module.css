@@ -44,6 +44,14 @@
 }
 
 /* one line, fixed height, never wraps, never overflows */
+button.row {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
 .row {
   flex: none;
   height: 26px;
@@ -92,7 +100,7 @@
 }
 
 .conf {
-  width: 72px;
+  width: 110px;
   color: var(--muted-2);
 }
 
